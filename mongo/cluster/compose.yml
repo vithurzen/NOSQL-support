@@ -1,0 +1,79 @@
+services:
+  node-installer:
+    image: node:24-alpine
+    working_dir: /home/node/project
+    volumes:
+      - .:/home/node/project
+    command: npm i
+
+  app:
+    image: node:24-alpine
+    working_dir: /home/node/project
+    volumes:
+      - .:/home/node/project
+    command: npm run dev
+    depends_on:
+      mongo-init:
+        condition: service_completed_successfully
+      node-installer:
+        condition: service_completed_successfully
+    environment:
+      MONGO_URL: mongodb://mongo-1:27017/?replicaSet=rs0
+
+  mongo-1:
+    image: mongo:8.0-noble
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_1_data:/data/db
+
+  mongo-2:
+    image: mongo:8.0-noble
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    ports:
+      - "27018:27017"
+    volumes:
+      - mongo_2_data:/data/db
+    
+  mongo-3:
+    image: mongo:8.0-noble
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    ports:
+      - "27019:27017"
+    volumes:
+      - mongo_3_data:/data/db
+
+  mongo-init:
+    image: mongo:8.0-noble
+    depends_on:
+      - mongo-1
+      - mongo-2
+      - mongo-3
+    command: >
+      bash -c '
+        until mongosh --host mongo-1:27017 --eval "db.adminCommand({ ping: 1 })";
+        do sleep 1;
+        done;
+
+        mongosh --host mongo-1:27017 --eval "
+          try {
+            rs.status();
+            print(\"Replica Set déjà initialisé\");
+          } catch (error) {
+            rs.initiate({
+              _id: \"rs0\",
+              members: [
+                { _id: 0, host: \"mongo-1:27017\" },
+                { _id: 1, host: \"mongo-2:27017\" },
+                { _id: 2, host: \"mongo-3:27017\" }
+              ]
+            });
+          }
+        "
+      '
+
+volumes:
+  mongo_1_data:
+  mongo_2_data:
+  mongo_3_data:
